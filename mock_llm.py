@@ -57,7 +57,9 @@ def _agent(messages,tools):
         if amt==0: return _resp("DENIED: delivery was within 45 minutes.",messages=messages)
         if amt>1000: return call("escalate_to_human",{"order_id":order["order_id"],"refund_inr":amt})
         return call("issue_refund",{"order_id":order["order_id"],"refund_inr":amt})
-    if name=="issue_refund": return _resp(f"REFUND: INR {data['refund_inr']} issued.",messages=messages)
+    if name=="issue_refund":
+        if data.get("status")=="ALREADY_REFUNDED": return _resp(f"ALREADY_REFUNDED: order {order.get('order_id', '')} has already been refunded.",messages=messages)
+        return _resp(f"REFUND: INR {data['refund_inr']} issued.",messages=messages)
     if name=="escalate_to_human": return _resp("ESCALATE: refund above INR 1000 sent to a human lead.",messages=messages)
     return _resp("DENIED: unable to process.",messages=messages)
 def chat(messages,tools=None):

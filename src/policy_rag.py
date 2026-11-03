@@ -35,3 +35,13 @@ def evaluate(rag):
         out.append({"question":r.question,"expected_doc":expected_doc,"retrieved_doc":expected_doc in ans["sources"] if expected_doc!="NONE" else False,
           "fact_found":fact in ans["answer"] if fact else False,"fallback":ans["answer"].startswith("I could not find")})
     return pd.DataFrame(out)
+def compare_chunking(pairs=((20,5),(40,10),(80,20),(120,30))):
+    rows=[]
+    for cs,ov in pairs:
+        rag=PolicyRAG(chunk_size=cs,overlap=ov)
+        ev=evaluate(rag)
+        p_ev=ev[ev.expected_doc!="NONE"]
+        ret_rate=round(float(p_ev.retrieved_doc.mean()),3) if len(p_ev) else 0.0
+        fact_rate=round(float(p_ev.fact_found.mean()),3) if len(p_ev) else 0.0
+        rows.append({"chunk_size":cs,"overlap":ov,"chunk_count":len(rag.chunks),"retrieval_rate":ret_rate,"fact_rate":fact_rate})
+    return pd.DataFrame(rows)
