@@ -347,6 +347,16 @@ def policy_eval():
     return guard(go)
 
 
+@app.get("/api/policy/chunking")
+def policy_chunking():
+    def go():
+        from src.policy_rag import compare_chunking
+
+        return {"result": clean(compare_chunking())}
+
+    return guard(go)
+
+
 class RefundReq(BaseModel):
     message: str
     scenario_id: str | None = None

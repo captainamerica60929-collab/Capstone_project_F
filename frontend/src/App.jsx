@@ -307,10 +307,39 @@ const QUESTIONS = [
   "When is a refund escalated to a human?",
 ];
 
+function PolicyView({ res }) {
+  if (!res || typeof res !== "object") return <Generic data={res} />;
+  return (
+    <div className="receipt">
+      {res.answer && (
+        <div className="verdict" style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
+          <span>Assistant answer</span>
+          <p>{res.answer}</p>
+        </div>
+      )}
+      {res.sources && res.sources.length > 0 && (
+        <div className="row" style={{ marginTop: "14px" }}>
+          <span className="muted" style={{ fontSize: "12.5px" }}>Sources:</span>
+          {res.sources.map((s) => (
+            <span key={s} className="badge good">{s}</span>
+          ))}
+        </div>
+      )}
+      {res.retrieved && res.retrieved.length > 0 && (
+        <div style={{ marginTop: "18px" }}>
+          <h3 style={{ fontSize: "13px", color: "var(--muted)", marginBottom: "8px" }}>Retrieved Context Chunks</h3>
+          <DataTable rows={res.retrieved} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Policy() {
   const [q, setQ] = useState(QUESTIONS[0]);
   const [ans, runAns] = useCall();
   const [ev, runEv] = useCall();
+  const [chk, runChk] = useCall();
   const ask = () => runAns(() => api("/policy/ask", { question: q }));
   return (
     <>
@@ -322,7 +351,7 @@ function Policy() {
         <div className="chips">{QUESTIONS.map((x) => <button key={x} className="chip" onClick={() => setQ(x)}>{x}</button>)}</div>
         <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} />
         <ErrorNote message={ans.error} />
-        {ans.data && <div className="result"><Generic data={ans.data.result} /></div>}
+        {ans.data && <div className="result"><PolicyView res={ans.data.result} /></div>}
       </Panel>
       <Panel
         title="Retrieval accuracy"
@@ -332,13 +361,21 @@ function Policy() {
         <ErrorNote message={ev.error} />
         {ev.data && <Generic data={ev.data.result} />}
       </Panel>
+      <Panel
+        title="Chunking strategy comparison"
+        note="Compares retrieval and fact extraction rates across sliding window chunk sizes and overlaps."
+        actions={<RunButton quiet onClick={() => runChk(() => api("/policy/chunking"))} loading={chk.loading}>Compare chunking</RunButton>}
+      >
+        <ErrorNote message={chk.error} />
+        {chk.data && <DataTable rows={chk.data.result} />}
+      </Panel>
     </>
   );
 }
 
 /* ------------------------------------------------------------ Refund agent */
 const stepKeys = ["trace", "steps", "history", "events", "messages", "tool_calls"];
-const finalKeys = ["final", "answer", "decision", "outcome", "result", "message"];
+const finalKeys = ["final", "answer", "final_answer", "decision", "outcome", "result", "message"];
 
 function Step({ s, i }) {
   const isObj = s && typeof s === "object";
