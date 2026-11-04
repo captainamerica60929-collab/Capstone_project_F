@@ -139,10 +139,10 @@ In accordance with capstone submission standards, the repository maintains dedic
 - **RFM Feature Extraction:** Calculated snapshot Recency (days elapsed from last completed order to 2025-10-01), Frequency (count of completed orders), and Monetary spend (sum of completed order value).
 - **Standardization & Clustering:** Standardized features with `StandardScaler`. Fitted K-Means across $K \in [2, 8]$, logging inertia and silhouette scores. Selected **$K=4$** based on peak silhouette score (0.526).
 - **Segment Profiling:**
-  - *Frequent Shoppers* (419 customers): Recency ~8.8 days, Frequency ~19.4 orders, Spend ~₹3,410.
-  - *High-Value Premium* (138 customers): Recency ~24.1 days, Frequency ~6.8 orders, Spend ~₹7,130.
-  - *Regular Shoppers* (436 customers): Recency ~28.9 days, Frequency ~3.8 orders, Spend ~₹1,058.
-  - *At Risk / Dormant* (182 customers): Recency ~109.0 days, Frequency ~2.2 orders, Spend ~₹686.
+  - `0` - **Regular** (436 customers): Recency ~28.9 days, Frequency ~3.8 orders, Spend ~₹1,058.
+  - `1` - **Premium** (138 customers): Recency ~24.1 days, Frequency ~6.8 orders, Spend ~₹7,130.
+  - `2` - **Frequent** (419 customers): Recency ~8.8 days, Frequency ~19.4 orders, Spend ~₹3,410.
+  - `3` - **At Risk** (182 customers): Recency ~109.0 days, Frequency ~2.2 orders, Spend ~₹686.
 - **PCA Decomposition:** Demonstrated that 2 principal components capture **85.23%** of total RFM feature variance.
 - **Leakage-Aware Lapse Model:**
   - Feature window strictly before `2025-09-01`.
@@ -223,31 +223,56 @@ The system includes a production-style decoupled full-stack architecture:
 
 ### 2. Customer Lapse Prediction Benchmark
 
+Test Set Base Rate: **38.36%** (89 / 232 test customers lapsed).
+
 | Model | Hyperparameters | 5-Fold CV F1 | Test Precision | Test Recall | Test F1 Score |
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | Baseline (Majority Class) | – | – | 0.000 | 0.000 | 0.000 |
 | Logistic Regression | $C = 100$ | 0.6506 | 0.6444 | 0.6517 | **0.6480** |
 | **Random Forest** | `max_depth=8`, `min_samples_leaf=10` | **0.6866** | 0.6333 | 0.6404 | **0.6369** |
 
-### 3. Support Ticket Triage Distribution (164 Tickets)
+#### Top-K Ranking & Lift Metrics:
 
-| Category / Status | Ticket Count | Percentage |
-| :--- | :---: | :---: |
-| Classified via Strict JSON Schema | 135 | 82.3% |
-| Classified via Keyword Fallback | 12 | 7.3% |
-| Flagged Invalid Output (Routed to Human Review) | 9 | 5.5% |
-| Blocked by Token Ceiling ($> 400$ tokens) | 4 | 2.4% |
-| Skipped Empty / Whitespace Input | 4 | 2.4% |
-| **Total Processed** | **164** | **100.0%** |
-| **PII Redactions Applied** | **278 total (55 emails, 91 phones, 132 order IDs)** | – |
+| Model | Precision@10 | Lift@10 | Precision@25 | Lift@25 | Precision@50 | Lift@50 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Logistic Regression** | **0.9000** (9/10) | **2.35x** | **0.7600** (19/25) | **1.98x** | **0.6400** (32/50) | **1.67x** |
+| **Random Forest** | **0.7000** (7/10) | **1.82x** | **0.6800** (17/25) | **1.77x** | **0.6800** (34/50) | **1.77x** |
 
-### 4. Policy RAG Evaluation (14 Questions)
+> **Retention List Construction:** Top 10 high-value customers from the `Premium` segment (Cluster 1) ranked in descending order of predicted lapse probability $P(\text{lapse}=1 \mid X)$ using the tuned Random Forest model (`outputs/retention_list.csv`).
+
+### 3. Support Ticket Triage Distribution & Accuracy (164 Tickets)
+
+#### Status Distribution (Zero-Shot vs Few-Shot):
+| Pipeline Status | Zero-Shot Count | Few-Shot Count | Description |
+| :--- | :---: | :---: | :--- |
+| `classified_json` | 135 | 135 | Successfully classified via LLM JSON output |
+| `classified_keyword` | 12 | 12 | Regex/keyword fallback after invalid LLM response |
+| `flagged_invalid_output` | 9 | 9 | Exhausted retry budget; routed to human review |
+| `flagged_long` | 4 | 4 | Exceeded 400 token ceiling; routed to human review |
+| `skipped_empty` | 4 | 4 | Empty or whitespace-only input |
+| **Total Processed** | **164** | **164** | **278 PII redactions applied** |
+
+#### Classification Accuracy Comparison:
+| Evaluation Subset | Zero-Shot Accuracy | Few-Shot Accuracy | Absolute Improvement |
+| :--- | :---: | :---: | :---: |
+| **All Tickets (164)** | 76.83% | **89.63%** | **+12.80%** |
+| **Valid Labeled Tickets (160)** | 78.75% | **91.88%** | **+13.13%** |
+
+### 4. Policy RAG Evaluation & Chunking Comparison (14 Questions)
 
 | Benchmark Metric | Target Standard | Achieved Score | Status |
 | :--- | :---: | :---: | :---: |
 | Expected Document Retrieval Rate | $\ge 90\%$ | **100.0% (12/12)** | PASSED |
 | Expected Fact Extraction Rate | $\ge 90\%$ | **100.0% (12/12)** | PASSED |
 | Out-of-Scope Fallback Handling | $100\%$ | **100.0% (2/2)** | PASSED |
+
+#### Chunking Strategy Parameter Comparison (`compare_chunking()`):
+| Chunk Size (words) | Overlap (words) | Chunk Count | Retrieval Rate | Fact Extraction Rate |
+| :---: | :---: | :---: | :---: | :---: |
+| 20 | 5 | 31 | 1.000 | 0.833 |
+| **40** | **10** | **15** | **1.000** | **1.000** |
+| 80 | 20 | 8 | 1.000 | 1.000 |
+| 120 | 30 | 5 | 1.000 | 1.000 |
 
 ---
 

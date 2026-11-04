@@ -201,7 +201,7 @@ def segments():
         rfm, diag, prof, pca = _segments()
         counts = []
         if isinstance(rfm, pd.DataFrame):
-            col = next((c for c in rfm.columns if "segment" in str(c).lower()), None)
+            col = "segment_name" if "segment_name" in rfm.columns else next((c for c in rfm.columns if "segment" in str(c).lower()), None)
             if col:
                 counts = [{"segment": str(k), "customers": int(v)} for k, v in rfm[col].value_counts().items()]
         return {

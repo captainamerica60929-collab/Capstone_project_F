@@ -28,10 +28,15 @@ def rfm_and_segments(k=4):
         diagnostics.append({"k":n,"inertia":km.inertia_,"silhouette":silhouette_score(X,km.labels_)})
     km=KMeans(n_clusters=k,n_init=10,random_state=42); rfm["segment_id"]=km.fit_predict(X)
     profile=rfm.groupby("segment_id").agg(size=("customer_id","size"),recency=("recency","mean"),frequency=("frequency","mean"),monetary=("monetary","mean")).reset_index()
-    order=profile.sort_values("monetary",ascending=False).segment_id.tolist()
-    names=["Premium" if i==order[0] else ("Frequent" if profile.set_index("segment_id").loc[i,"frequency"]>=profile.frequency.median() else "At Risk") for i in profile.segment_id]
-    name_map=dict(zip(profile.segment_id,names))
-    rfm["segment_name"]=rfm.segment_id.map(name_map); rfm["is_premium"]=rfm.segment_id.eq(order[0])
+    prem_id=profile.sort_values("monetary",ascending=False).iloc[0].segment_id
+    rem=profile[profile.segment_id!=prem_id]
+    dormant_id=rem.sort_values("recency",ascending=False).iloc[0].segment_id
+    rem2=rem[rem.segment_id!=dormant_id]
+    freq_id=rem2.sort_values("frequency",ascending=False).iloc[0].segment_id
+    regular_id=rem2[rem2.segment_id!=freq_id].iloc[0].segment_id
+    name_map={int(prem_id):"Premium",int(freq_id):"Frequent",int(regular_id):"Regular",int(dormant_id):"At Risk"}
+    rfm["segment_name"]=rfm.segment_id.map(name_map); rfm["is_premium"]=rfm.segment_id.eq(prem_id)
+    profile["segment_name"]=profile.segment_id.map(name_map)
     OUT.mkdir(exist_ok=True)
     rfm[["customer_id","recency","frequency","monetary","segment_id","segment_name","is_premium"]].to_csv(OUT/"customer_segments.csv",index=False)
     pca=PCA(n_components=2).fit(X)
@@ -70,6 +75,19 @@ def build_lapse_model():
     selected=models["forest"]["search"]
     OUT.mkdir(exist_ok=True); joblib.dump(selected,OUT/"lapse_model.joblib")
     assert np.array_equal(selected.predict(X_test),joblib.load(OUT/"lapse_model.joblib").predict(X_test))
+    base_rate=float(y_test.mean())
+    for name,m in models.items():
+        search=m["search"]
+        probs=search.predict_proba(X_test)[:,list(search.classes_).index(1)]
+        sorted_indices=np.argsort(probs)[::-1]
+        sorted_y=y_test.iloc[sorted_indices].values
+        ranking={}
+        for k in [10,25,50]:
+            prec=float(sorted_y[:k].mean())
+            lift=float(prec/base_rate) if base_rate>0 else 0.0
+            ranking[f"precision@{k}"]=round(prec,4)
+            ranking[f"lift@{k}"]=round(lift,2)
+        m["ranking"]=ranking
     # Premium list is illustrative: the flag uses whole-window RFM and is post-hoc.
     segments,_,_,_=rfm_and_segments()
     premium=set(segments.loc[segments.is_premium,"customer_id"])
@@ -78,5 +96,6 @@ def build_lapse_model():
       "lapse_probability":probs,"actually_lapsed":y_test.values})
     ret=ret[ret.customer_id.isin(premium)].sort_values("lapse_probability",ascending=False).head(10)
     ret.to_csv(OUT/"retention_list.csv",index=False)
-    return {"cohort_rows":len(cohort),"lapsed":int(y.sum()),"baseline_accuracy":accuracy_score(y_test,np.zeros(len(y_test),dtype=int)),
+    return {"cohort_rows":len(cohort),"lapsed":int(y.sum()),"base_rate":round(base_rate,4),
+      "baseline_accuracy":accuracy_score(y_test,np.zeros(len(y_test),dtype=int)),
       "models":{k:{a:b for a,b in v.items() if a!="search"} for k,v in models.items()},"retention_list":ret}

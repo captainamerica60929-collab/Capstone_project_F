@@ -60,7 +60,9 @@ def _agent(messages,tools):
     if name=="issue_refund":
         if data.get("status")=="ALREADY_REFUNDED": return _resp(f"ALREADY_REFUNDED: order {order.get('order_id', '')} has already been refunded.",messages=messages)
         return _resp(f"REFUND: INR {data['refund_inr']} issued.",messages=messages)
-    if name=="escalate_to_human": return _resp("ESCALATE: refund above INR 1000 sent to a human lead.",messages=messages)
+    if name=="escalate_to_human":
+        if data.get("status")=="ALREADY_ESCALATED": return _resp(f"ALREADY_ESCALATED: order {order.get('order_id', '')} has already been escalated.",messages=messages)
+        return _resp("ESCALATE: refund above INR 1000 sent to a human lead.",messages=messages)
     return _resp("DENIED: unable to process.",messages=messages)
 def chat(messages,tools=None):
     head=messages[0]["content"].upper()

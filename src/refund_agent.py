@@ -30,6 +30,17 @@ def is_already_refunded(order_id):
                 if entry.get("tool")=="issue_refund" and entry.get("order_id")==order_id: return True
             except json.JSONDecodeError: pass
     return False
+def is_already_escalated(order_id):
+    path=OUT/"refund_ledger.jsonl"
+    if not path.exists(): return False
+    with path.open("r",encoding="utf-8") as f:
+        for line in f:
+            if not line.strip(): continue
+            try:
+                entry=json.loads(line)
+                if entry.get("tool")=="escalate_to_human" and entry.get("order_id")==order_id: return True
+            except json.JSONDecodeError: pass
+    return False
 def _ledger(tool,order_id,refund_inr):
     OUT.mkdir(exist_ok=True); path=OUT/"refund_ledger.jsonl"
     with path.open("a",encoding="utf-8") as f: f.write(json.dumps({"timestamp":datetime.now(timezone.utc).isoformat(),"tool":tool,"order_id":order_id,"refund_inr":refund_inr})+"\n")
@@ -39,7 +50,11 @@ def issue_refund(order_id,refund_inr):
         msg=f"ALREADY_REFUNDED: order {order_id} has already been refunded."
         return {"status":"ALREADY_REFUNDED","order_id":order_id,"refund_inr":refund_inr,"final_answer":msg,"answer":msg}
     return _ledger("issue_refund",order_id,refund_inr)
-def escalate_to_human(order_id,refund_inr): return _ledger("escalate_to_human",order_id,refund_inr)
+def escalate_to_human(order_id,refund_inr):
+    if is_already_escalated(order_id):
+        msg=f"ALREADY_ESCALATED: order {order_id} has already been escalated."
+        return {"status":"ALREADY_ESCALATED","order_id":order_id,"refund_inr":refund_inr,"final_answer":msg,"answer":msg}
+    return _ledger("escalate_to_human",order_id,refund_inr)
 TOOL_MAP={"get_order":get_order,"search_policy":search_policy,"calculate_refund":calculate_refund,"issue_refund":issue_refund,"escalate_to_human":escalate_to_human}
 TOOLS_SPEC=[{"name":n,"description":f"Execute the {n} refund workflow operation.","parameters":{"type":"object","properties":{}}} for n in TOOL_MAP]
 def run_agent(user_message,scenario_id="demo",max_iterations=6,token_limit=6000,time_limit_seconds=10,run_id=None,crash_after=None):
@@ -67,5 +82,8 @@ def run_agent(user_message,scenario_id="demo",max_iterations=6,token_limit=6000,
         if tc.name=="issue_refund" and isinstance(observation,dict) and observation.get("status")=="ALREADY_REFUNDED":
             ans=observation.get("final_answer",f"ALREADY_REFUNDED: order {args.get('order_id')} has already been refunded.")
             return {"status":"ALREADY_REFUNDED","final_answer":ans,"answer":ans,"steps":steps,"llm_calls":llm_calls,"tokens_used":tokens}
+        if tc.name=="escalate_to_human" and isinstance(observation,dict) and observation.get("status")=="ALREADY_ESCALATED":
+            ans=observation.get("final_answer",f"ALREADY_ESCALATED: order {args.get('order_id')} has already been escalated.")
+            return {"status":"ALREADY_ESCALATED","final_answer":ans,"answer":ans,"steps":steps,"llm_calls":llm_calls,"tokens_used":tokens}
         if crash_after is not None and len(executed)==crash_after: raise RuntimeError("Simulated crash after checkpoint")
     return {"status":"FALLBACK_MAX_ITERATIONS","final_answer":"FALLBACK_MAX_ITERATIONS: hand off to a human agent.","answer":"FALLBACK_MAX_ITERATIONS: hand off to a human agent.","steps":steps,"llm_calls":llm_calls,"tokens_used":tokens}
